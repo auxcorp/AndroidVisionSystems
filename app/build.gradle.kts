@@ -1,48 +1,80 @@
 plugins {
-    id("com.android.application")
-    id("org.jetbrains.kotlin.android")
-    id("com.google.dagger.hilt.android")
-    id("com.google.devtools.ksp")
-    id("org.jetbrains.kotlin.plugin.serialization")
+    alias(libs.plugins.android.application)
+    alias(libs.plugins.kotlin.android)
+    alias(libs.plugins.kotlin.serialization)
+    alias(libs.plugins.hilt)
+    alias(libs.plugins.ksp)
 }
 
 android {
     namespace = "com.industrialvision.systems"
-    compileSdk = rootProject.extra["compileSdk"] as Int
+    compileSdk = libs.versions.compileSdk.get().toInt()
 
     defaultConfig {
         applicationId = "com.industrialvision.systems"
-        minSdk = rootProject.extra["minSdk"] as Int
-        targetSdk = rootProject.extra["targetSdk"] as Int
+        minSdk = libs.versions.minSdk.get().toInt()
+        targetSdk = libs.versions.targetSdk.get().toInt()
         versionCode = 1
         versionName = "1.0.0"
 
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        testInstrumentationRunner = "com.industrialvision.systems.HiltTestRunner"
 
         vectorDrawables {
             useSupportLibrary = true
         }
 
-        // Build config fields for API configuration
+        // Room schema export
+        ksp {
+            arg("room.schemaLocation", "$projectDir/schemas")
+            arg("room.incremental", "true")
+            arg("room.generateKotlin", "true")
+        }
+
+        // API Configuration from local.properties
+        buildConfigField("String", "ANTHROPIC_API_KEY", "\"${project.findProperty("ANTHROPIC_API_KEY") ?: ""}\"")
+        buildConfigField("String", "OPENAI_API_KEY", "\"${project.findProperty("OPENAI_API_KEY") ?: ""}\"")
         buildConfigField("String", "VISION_API_VERSION", "\"v2\"")
         buildConfigField("Boolean", "ENABLE_ANALYTICS", "true")
         buildConfigField("Boolean", "ENABLE_CLOUD_SYNC", "true")
     }
 
+    signingConfigs {
+        create("release") {
+            val keystoreFile = project.findProperty("KEYSTORE_FILE")?.toString()
+            if (keystoreFile != null && file(keystoreFile).exists()) {
+                storeFile = file(keystoreFile)
+                storePassword = project.findProperty("KEYSTORE_PASSWORD")?.toString() ?: ""
+                keyAlias = project.findProperty("KEY_ALIAS")?.toString() ?: ""
+                keyPassword = project.findProperty("KEY_PASSWORD")?.toString() ?: ""
+            }
+        }
+    }
+
     buildTypes {
+        debug {
+            isDebuggable = true
+            isMinifyEnabled = false
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-debug"
+            buildConfigField("String", "API_BASE_URL", "\"https://dev-api.industrialvision.ai\"")
+        }
+
         release {
+            isDebuggable = false
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            signingConfig = signingConfigs.getByName("debug")
-        }
-        debug {
-            isMinifyEnabled = false
-            applicationIdSuffix = ".debug"
-            versionNameSuffix = "-DEBUG"
+            buildConfigField("String", "API_BASE_URL", "\"https://api.industrialvision.ai\"")
+
+            val releaseSigningConfig = signingConfigs.findByName("release")
+            if (releaseSigningConfig?.storeFile?.exists() == true) {
+                signingConfig = releaseSigningConfig
+            } else {
+                signingConfig = signingConfigs.getByName("debug")
+            }
         }
     }
 
@@ -56,7 +88,10 @@ android {
         freeCompilerArgs += listOf(
             "-opt-in=kotlin.RequiresOptIn",
             "-opt-in=kotlinx.coroutines.ExperimentalCoroutinesApi",
-            "-opt-in=androidx.compose.material3.ExperimentalMaterial3Api"
+            "-opt-in=kotlinx.coroutines.FlowPreview",
+            "-opt-in=androidx.compose.material3.ExperimentalMaterial3Api",
+            "-opt-in=androidx.compose.animation.ExperimentalAnimationApi",
+            "-opt-in=androidx.compose.foundation.ExperimentalFoundationApi"
         )
     }
 
@@ -67,14 +102,34 @@ android {
     }
 
     composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.8"
+        kotlinCompilerExtensionVersion = libs.versions.composeCompiler.get()
     }
 
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
-            excludes += "META-INF/DEPENDENCIES"
+            excludes += "/META-INF/DEPENDENCIES"
+            excludes += "/META-INF/LICENSE*"
+            excludes += "/META-INF/NOTICE*"
         }
+    }
+
+    androidResources {
+        noCompress += listOf("tflite", "lite")
+    }
+
+    testOptions {
+        unitTests {
+            isIncludeAndroidResources = true
+            isReturnDefaultValues = true
+        }
+    }
+
+    lint {
+        warningsAsErrors = false
+        abortOnError = false
+        checkReleaseBuilds = true
+        disable += listOf("MissingTranslation", "ExtraTranslation")
     }
 }
 
@@ -95,85 +150,88 @@ dependencies {
     implementation(project(":ai:agents"))
     implementation(project(":ai:llm"))
 
-    // Core Android
-    implementation("androidx.core:core-ktx:1.12.0")
-    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
-    implementation("androidx.activity:activity-compose:1.8.2")
-    implementation("androidx.core:core-splashscreen:1.0.1")
+    // Kotlin & Coroutines
+    implementation(libs.kotlin.stdlib)
+    implementation(libs.kotlinx.coroutines.core)
+    implementation(libs.kotlinx.coroutines.android)
 
-    // Compose BOM
-    implementation(platform("androidx.compose:compose-bom:2024.01.00"))
-    implementation("androidx.compose.ui:ui")
-    implementation("androidx.compose.ui:ui-graphics")
-    implementation("androidx.compose.ui:ui-tooling-preview")
-    implementation("androidx.compose.material3:material3")
-    implementation("androidx.compose.material:material-icons-extended")
+    // AndroidX Core
+    implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.appcompat)
+    implementation(libs.androidx.activity.compose)
+    implementation(libs.androidx.splashscreen)
+    implementation(libs.androidx.startup)
 
-    // Navigation
-    implementation("androidx.navigation:navigation-compose:2.7.6")
-    implementation("androidx.hilt:hilt-navigation-compose:1.1.0")
+    // Lifecycle
+    implementation(libs.bundles.lifecycle)
+    implementation(libs.androidx.lifecycle.service)
 
-    // Dependency Injection
-    implementation("com.google.dagger:hilt-android:${rootProject.extra["hiltVersion"]}")
-    ksp("com.google.dagger:hilt-android-compiler:${rootProject.extra["hiltVersion"]}")
+    // Compose
+    implementation(platform(libs.androidx.compose.bom))
+    implementation(libs.bundles.compose)
+    implementation(libs.androidx.navigation.compose)
+    debugImplementation(libs.androidx.compose.ui.tooling)
 
-    // CameraX
-    implementation("androidx.camera:camera-core:${rootProject.extra["cameraxVersion"]}")
-    implementation("androidx.camera:camera-camera2:${rootProject.extra["cameraxVersion"]}")
-    implementation("androidx.camera:camera-lifecycle:${rootProject.extra["cameraxVersion"]}")
-    implementation("androidx.camera:camera-view:${rootProject.extra["cameraxVersion"]}")
-    implementation("androidx.camera:camera-mlkit-vision:1.4.0-alpha04")
+    // Accompanist
+    implementation(libs.accompanist.permissions)
+    implementation(libs.accompanist.systemuicontroller)
 
-    // ML Kit
-    implementation("com.google.mlkit:barcode-scanning:${rootProject.extra["mlkitVersion"]}")
-    implementation("com.google.mlkit:text-recognition:16.0.0")
-    implementation("com.google.mlkit:object-detection:17.0.0")
-    implementation("com.google.mlkit:image-labeling:17.0.7")
-    implementation("com.google.mlkit:face-detection:16.1.5")
+    // Hilt
+    implementation(libs.hilt.android)
+    ksp(libs.hilt.compiler)
+    implementation(libs.hilt.navigation.compose)
+    implementation(libs.hilt.work)
+    ksp(libs.hilt.work.compiler)
 
-    // TensorFlow Lite
-    implementation("org.tensorflow:tensorflow-lite:${rootProject.extra["tensorflowVersion"]}")
-    implementation("org.tensorflow:tensorflow-lite-gpu:${rootProject.extra["tensorflowVersion"]}")
-    implementation("org.tensorflow:tensorflow-lite-support:0.4.4")
-    implementation("org.tensorflow:tensorflow-lite-metadata:0.4.4")
-
-    // Room Database
-    implementation("androidx.room:room-runtime:${rootProject.extra["roomVersion"]}")
-    implementation("androidx.room:room-ktx:${rootProject.extra["roomVersion"]}")
-    ksp("androidx.room:room-compiler:${rootProject.extra["roomVersion"]}")
-
-    // Network
-    implementation("com.squareup.retrofit2:retrofit:2.9.0")
-    implementation("com.squareup.retrofit2:converter-gson:2.9.0")
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
-    implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
-
-    // Kotlin Serialization
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.2")
-
-    // Coroutines
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
-
-    // Image Loading
-    implementation("io.coil-kt:coil-compose:2.5.0")
+    // Room
+    implementation(libs.bundles.room)
+    ksp(libs.androidx.room.compiler)
 
     // DataStore
-    implementation("androidx.datastore:datastore-preferences:1.0.0")
+    implementation(libs.androidx.datastore.preferences)
 
     // WorkManager
-    implementation("androidx.work:work-runtime-ktx:2.9.0")
-    implementation("androidx.hilt:hilt-work:1.1.0")
-    ksp("androidx.hilt:hilt-compiler:1.1.0")
+    implementation(libs.androidx.work.runtime.ktx)
 
-    // Testing
-    testImplementation("junit:junit:4.13.2")
-    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
-    testImplementation("io.mockk:mockk:1.13.9")
-    androidTestImplementation("androidx.test.ext:junit:1.1.5")
-    androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
-    androidTestImplementation(platform("androidx.compose:compose-bom:2024.01.00"))
-    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
-    debugImplementation("androidx.compose.ui:ui-tooling")
-    debugImplementation("androidx.compose.ui:ui-test-manifest")
+    // Network
+    implementation(libs.bundles.network)
+
+    // CameraX
+    implementation(libs.bundles.camerax)
+    implementation(libs.camerax.mlkit)
+
+    // TensorFlow Lite
+    implementation(libs.bundles.tensorflow)
+
+    // ML Kit
+    implementation(libs.bundles.mlkit)
+
+    // Image Loading & Processing
+    implementation(libs.coil)
+    implementation(libs.coil.compose)
+    implementation(libs.gpuimage)
+
+    // Logging
+    implementation(libs.timber)
+
+    // Security
+    implementation(libs.androidx.security.crypto)
+
+    // Material
+    implementation(libs.google.material)
+
+    // Debug
+    debugImplementation(libs.leakcanary)
+    debugImplementation(libs.androidx.compose.ui.test.manifest)
+
+    // Unit Testing
+    testImplementation(libs.bundles.testing)
+    testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.room.testing)
+
+    // Android Testing
+    androidTestImplementation(libs.bundles.androidTesting)
+    androidTestImplementation(platform(libs.androidx.compose.bom))
+    androidTestImplementation(libs.androidx.compose.ui.test)
+    kspAndroidTest(libs.hilt.compiler)
 }

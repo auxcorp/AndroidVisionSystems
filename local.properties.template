@@ -1,0 +1,19 @@
+# Industrial Vision Systems - Local Properties Template
+# Copy this file to local.properties and fill in your values
+# DO NOT commit local.properties to version control
+
+# Android SDK location
+sdk.dir=/path/to/Android/Sdk
+
+# API Keys (required for LLM features)
+ANTHROPIC_API_KEY=your_anthropic_api_key_here
+OPENAI_API_KEY=your_openai_api_key_here
+
+# Cloud Sync Configuration (optional)
+CLOUD_SYNC_URL=https://api.industrialvision.ai
+
+# Release Signing Configuration (required for release builds)
+KEYSTORE_FILE=path/to/your/keystore.jks
+KEYSTORE_PASSWORD=your_keystore_password
+KEY_ALIAS=your_key_alias
+KEY_PASSWORD=your_key_password
